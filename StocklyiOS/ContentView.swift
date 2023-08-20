@@ -23,7 +23,7 @@ struct ContentView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                if viewModel.content.isEmpty {
+                if viewModel.watchList.isEmpty, viewModel.content.isEmpty {
                     VStack(spacing: 8) {
                         Text("Search Stocks")
                             .font(.headline)
@@ -32,16 +32,27 @@ struct ContentView: View {
                             .foregroundStyle(.secondary)
                     }
                     .offset(y: -40)
-                } else {
+                } else if !viewModel.content.isEmpty {
                     List {
-                        Section("My Watch List") {
+                        Section("Search") {
                             ForEach(viewModel.content.indices, id: \.self) { index in
                                 NavigationLink {
                                     Text("\(index)")
                                 } label: {
                                     StockCell(index: index, viewModel: viewModel)
                                 }
-
+                            }
+                        }
+                    }
+                } else if let watchList = viewModel.watchList, !watchList.isEmpty {
+                    List {
+                        Section("Watch List") {
+                            ForEach(viewModel.watchList.indices, id: \.self) { index in
+                                NavigationLink {
+                                    Text("\(index)")
+                                } label: {
+                                    WatchListCell(index: index, viewModel: viewModel)
+                                }
                             }
                         }
                     }
@@ -62,6 +73,25 @@ struct ContentView: View {
     }
 }
 
+struct WatchListCell: View {
+    let index: Int
+    @ObservedObject var viewModel: ContentViewModel
+    var body: some View {
+        if !viewModel.watchList.isEmpty {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text(viewModel.watchList[index])
+                            .fontWeight(.bold)
+                            .scaledToFit()
+                    }
+                }
+            }
+        }
+    }
+}
+
+
 struct StockCell: View {
     let index: Int
     @ObservedObject var viewModel: ContentViewModel
@@ -69,9 +99,10 @@ struct StockCell: View {
         if !viewModel.content.isEmpty {
             HStack {
                 Button {
-                    //viewModel.content[index].isStored.toggle()
+                    let symbol = viewModel.content[index].symbol
+                    viewModel.trigger(.addToWatchList(symbol))
                 } label: {
-                    if false {
+                    if viewModel.isInWatchList(viewModel.content[index].symbol) {
                         Image(systemName: "checkmark.circle.fill")
                             .symbolRenderingMode(.hierarchical)
                             .foregroundColor(Color.teal)
@@ -118,7 +149,7 @@ struct StockCell: View {
             }
             .task {
                 if !viewModel.content.isEmpty {
-                    await viewModel.trigger(.fetchPrice(viewModel.content[index].symbol))
+                    await viewModel.task(.fetchPrice(viewModel.content[index].symbol))
                 }
             }
         }
@@ -142,11 +173,16 @@ final class ContentViewModel: NSObject, ObservableObject {
         }
     }
     @Published var content: [SearchResponse] = []
+    @Published var watchList = UserDefaults.watchList
     
     enum Input {
         case fetchStocks
-        case fetchPrice(String)
         case clear
+        case addToWatchList(String)
+    }
+    
+    enum Task {
+        case fetchPrice(String)
     }
     
     let repository: StockRepository
@@ -155,11 +191,17 @@ final class ContentViewModel: NSObject, ObservableObject {
         self.repository = repository
     }
     
-    func trigger(_ input: Input) async {
+    func task(_ task: Task) async {
+        switch task {
+            case .fetchPrice(let symbol): await fetchStockPrice(for: symbol)
+        }
+    }
+    
+    func trigger(_ input: Input) {
         switch input {
         case .fetchStocks: fetchStocks()
-        case .fetchPrice(let symbol): await fetchStockPrice(for: symbol)
         case .clear: clear()
+        case .addToWatchList(let symbol): addToWatchList(symbol)
         }
     }
     
@@ -190,8 +232,16 @@ final class ContentViewModel: NSObject, ObservableObject {
         
     }
     
+    private func addToWatchList(_ symbol: String) {
+        UserDefaults.addToWatchList(symbol)
+    }
+    
     func clear() {
         content.removeAll()
+    }
+    
+    func isInWatchList(_ symbol: String) -> Bool {
+        return watchList.contains(symbol)
     }
 }
 
@@ -360,6 +410,31 @@ struct SearchResponse: Codable {
       "currency": "USD"
  
  */
+
+extension UserDefaults {
+    enum Keys: String {
+        case watchList
+    }
+    static var watchList: [String] = {
+        let list = UserDefaults.standard.array(forKey: Keys.watchList.rawValue) as? [String]
+        if let list, !list.isEmpty {
+            return list
+        } else {
+            return []
+        }
+    }()
+    
+    static func addToWatchList(_ value: String) {
+        let list = UserDefaults.standard.array(forKey: Keys.watchList.rawValue) as? [String]
+        if var list, !list.isEmpty {
+            list.append(value)
+            UserDefaults.standard.set(list, forKey: Keys.watchList.rawValue)
+        } else {
+            let newList = [value]
+            UserDefaults.standard.set(newList, forKey: Keys.watchList.rawValue)
+        }
+    }
+}
 
 struct ContentPreview_Previews: PreviewProvider {
     static var previews: some View {
