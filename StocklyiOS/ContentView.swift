@@ -18,6 +18,7 @@ struct ContentView: View {
     @State private var hasAppeared = false
     @ObservedObject var viewModel = ContentViewModel(repository: StockService())
     @State var addSymbolPressed: Bool = false
+    @Environment(\.isSearching) private var isSearching: Bool
     
     var body: some View {
         NavigationStack {
@@ -47,6 +48,11 @@ struct ContentView: View {
                 }
             }
             .searchable(text: $viewModel.query)
+            .onChange(of: viewModel.query) { value in
+                if value.isEmpty && !isSearching {
+                    viewModel.clear()
+                }
+            }
             .task {
                 guard !hasAppeared else { return }
                 hasAppeared = true
@@ -60,57 +66,61 @@ struct StockCell: View {
     let index: Int
     @ObservedObject var viewModel: ContentViewModel
     var body: some View {
-        HStack {
-            Button {
-                //viewModel.content[index].isStored.toggle()
-            } label: {
-                if false {
-                    Image(systemName: "checkmark.circle.fill")
-                        .symbolRenderingMode(.hierarchical)
-                        .foregroundColor(Color.teal)
-                } else {
-                    Image(systemName: "plus.circle.fill")
-                        .symbolRenderingMode(.hierarchical)
-                }
-            }
-            .buttonStyle(.plain)
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text(viewModel.content[index].symbol)
-                        .fontWeight(.bold)
-                        .scaledToFit()
-                    Text(viewModel.content[index].exchange)
-                        .foregroundColor(Color(uiColor: .darkGray))
-                        .font(.footnote)
-                        .fontWeight(.semibold)
-                    Text(viewModel.content[index].currency)
-                        .foregroundColor(Color(uiColor: .darkGray))
-                        .font(.footnote)
-                        .fontWeight(.semibold)
-                }
-                if !viewModel.content[index].name.isEmpty {
-                    Text(viewModel.content[index].name)
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                }
-            }
-            Spacer()
-            VStack(alignment: .trailing, spacing: 6) {
-                Text("$127.19")
-                    .fontWeight(.semibold)
-                Text("+2.95")
-                    .fontWeight(.semibold)
-                    .padding(.vertical, 4)
-                    .padding(.horizontal, 12)
-                    .foregroundStyle(Color.green)
-                    .background {
-                        Color.green.opacity(0.15)
+        if !viewModel.content.isEmpty {
+            HStack {
+                Button {
+                    //viewModel.content[index].isStored.toggle()
+                } label: {
+                    if false {
+                        Image(systemName: "checkmark.circle.fill")
+                            .symbolRenderingMode(.hierarchical)
+                            .foregroundColor(Color.teal)
+                    } else {
+                        Image(systemName: "plus.circle.fill")
+                            .symbolRenderingMode(.hierarchical)
                     }
-                    .cornerRadius(6)
+                }
+                .buttonStyle(.plain)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text(viewModel.content[index].symbol)
+                            .fontWeight(.bold)
+                            .scaledToFit()
+                        Text(viewModel.content[index].exchange)
+                            .foregroundColor(Color(uiColor: .darkGray))
+                            .font(.footnote)
+                            .fontWeight(.semibold)
+                        Text(viewModel.content[index].currency)
+                            .foregroundColor(Color(uiColor: .darkGray))
+                            .font(.footnote)
+                            .fontWeight(.semibold)
+                    }
+                    if !viewModel.content[index].name.isEmpty {
+                        Text(viewModel.content[index].name)
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                Spacer()
+                VStack(alignment: .trailing, spacing: 6) {
+                    Text("$127.19")
+                        .fontWeight(.semibold)
+                    Text("+2.95")
+                        .fontWeight(.semibold)
+                        .padding(.vertical, 4)
+                        .padding(.horizontal, 12)
+                        .foregroundStyle(Color.green)
+                        .background {
+                            Color.green.opacity(0.15)
+                        }
+                        .cornerRadius(6)
+                }
             }
-        }
-        .task {
-            await viewModel.trigger(.fetchPrice(viewModel.content[index].symbol))
+            .task {
+                if !viewModel.content.isEmpty {
+                    await viewModel.trigger(.fetchPrice(viewModel.content[index].symbol))
+                }
+            }
         }
     }
 }
@@ -136,6 +146,7 @@ final class ContentViewModel: NSObject, ObservableObject {
     enum Input {
         case fetchStocks
         case fetchPrice(String)
+        case clear
     }
     
     let repository: StockRepository
@@ -148,6 +159,7 @@ final class ContentViewModel: NSObject, ObservableObject {
         switch input {
         case .fetchStocks: fetchStocks()
         case .fetchPrice(let symbol): await fetchStockPrice(for: symbol)
+        case .clear: clear()
         }
     }
     
@@ -176,6 +188,10 @@ final class ContentViewModel: NSObject, ObservableObject {
     
     private func fetchStocks() {
         
+    }
+    
+    func clear() {
+        content.removeAll()
     }
 }
 
@@ -295,7 +311,7 @@ final class StockService: StockRepository {
         let (data, _) = try await URLSession.shared.data(for: request)
         let decoder = JSONDecoder()
         let stockData = try decoder.decode(PriceResponse.self, from: data)
-        return stockData.price ?? "0"
+        return stockData.price
     }
     
     func fetchStocks(completion: @escaping (Result<[Content], Error>) -> Void) {
@@ -313,7 +329,7 @@ struct QuoteResponse: Codable {
 }
 
 struct PriceResponse: Codable {
-    let price: String?
+    let price: String
 }
 
 struct SearchRootRespose: Codable {
